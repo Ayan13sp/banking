@@ -1,0 +1,61 @@
+# ════════════════════════════════════════════════════════════════════════
+# Docker Compose — Algorithmic Market Analyzer
+# ════════════════════════════════════════════════════════════════════════
+# Services:
+#   db       – PostgreSQL 16 (persistent data)
+#   backend  – FastAPI + ML engine
+#   frontend – Next.js dashboard
+#
+# Usage:
+#   docker compose up --build
+#   Open http://localhost:3000
+# ════════════════════════════════════════════════════════════════════════
+
+services:
+  # ── PostgreSQL Database ──────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: market_user
+      POSTGRES_PASSWORD: market_pass
+      POSTGRES_DB: market_analyzer
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U market_user -d market_analyzer"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ── FastAPI Backend ──────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://market_user:market_pass@db:5432/market_analyzer
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # ── Next.js Frontend ────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://backend:8000
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:
