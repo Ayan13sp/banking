@@ -45,7 +45,7 @@ class BacktestRequest(BaseModel):
 # ═══════════════════════════════════════════════════════════════════════════
 
 class MarketDataPoint(BaseModel):
-    """A single day's OHLCV + engineered features."""
+    """A single day's OHLCV + all 16 engineered features."""
     date: date
     open: float
     high: float
@@ -54,11 +54,20 @@ class MarketDataPoint(BaseModel):
     volume: float
     sma_14: Optional[float] = None
     sma_50: Optional[float] = None
+    sma_200: Optional[float] = None
     ema_14: Optional[float] = None
+    ema_20: Optional[float] = None
     ema_50: Optional[float] = None
     rsi_14: Optional[float] = None
+    macd_line: Optional[float] = None
+    macd_signal: Optional[float] = None
+    macd_hist: Optional[float] = None
     bb_upper: Optional[float] = None
     bb_lower: Optional[float] = None
+    atr_14: Optional[float] = None
+    daily_return_vol: Optional[float] = None
+    volume_ratio: Optional[float] = None
+    volume_change: Optional[float] = None
     target: Optional[int] = None
 
 
@@ -77,6 +86,13 @@ class FeatureImportance(BaseModel):
 
 class ClassificationMetrics(BaseModel):
     """Standard ML classification metrics."""
+    accuracy: float
+    precision: float
+    recall: float
+
+
+class ModelMetrics(BaseModel):
+    """Metrics for a single model in the comparison."""
     accuracy: float
     precision: float
     recall: float
@@ -119,6 +135,13 @@ class AnalysisResponse(BaseModel):
     metrics: ClassificationMetrics
     feature_importances: List[FeatureImportance]
     backtest: BacktestResult
+    best_model: str = Field(
+        description="Name of the best-performing model (Random Forest, Logistic Regression, or SVM)"
+    )
+    all_model_metrics: Dict[str, ModelMetrics] = Field(
+        default_factory=dict,
+        description="Metrics for each of the 3 compared models"
+    )
 
 
 class HealthResponse(BaseModel):

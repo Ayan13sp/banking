@@ -3,13 +3,14 @@ API Routes
 ==========
 REST endpoints for the Algorithmic Market Analyzer.
 
-| Method | Endpoint               | Description                                    |
-|--------|------------------------|------------------------------------------------|
-| POST   | /api/analyze           | Full pipeline: fetch → features → train → test |
-| GET    | /api/market-data/{tkr} | Stored OHLCV + features for charting           |
-| GET    | /api/predictions/{tkr} | Latest prediction + confidence                 |
-| POST   | /api/backtest          | Run backtest with custom capital                |
-| GET    | /api/health            | Service health check                           |
+| Method | Endpoint                  | Description                                    |
+|--------|---------------------------|------------------------------------------------|
+| POST   | /api/analyze              | Full pipeline: fetch → features → train → test |
+| GET    | /api/market-data/{tkr}    | Stored OHLCV + features for charting           |
+| GET    | /api/predictions/{tkr}    | Latest prediction + confidence                 |
+| GET    | /api/sql-analytics/{tkr}  | SQL window functions demo                      |
+| POST   | /api/backtest             | Run backtest with custom capital                |
+| GET    | /api/health               | Service health check                           |
 """
 
 import logging
@@ -94,11 +95,20 @@ def get_market_data(ticker: str, db: Session = Depends(get_db)):
             volume=r.volume,
             sma_14=r.sma_14,
             sma_50=r.sma_50,
+            sma_200=r.sma_200,
             ema_14=r.ema_14,
+            ema_20=r.ema_20,
             ema_50=r.ema_50,
             rsi_14=r.rsi_14,
+            macd_line=r.macd_line,
+            macd_signal=r.macd_signal,
+            macd_hist=r.macd_hist,
             bb_upper=r.bb_upper,
             bb_lower=r.bb_lower,
+            atr_14=r.atr_14,
+            daily_return_vol=r.daily_return_vol,
+            volume_ratio=r.volume_ratio,
+            volume_change=r.volume_change,
             target=r.target,
         )
         for r in rows
@@ -145,38 +155,38 @@ def get_sql_analytics(ticker: str, db: Session = Depends(get_db)):
     """
     Demonstrates the complex SQL window functions used in this project
     to compute moving averages and rolling aggregations directly in the database,
-    as mentioned in the interview.
+    as mentioned in the resume.
     """
-    query = text(\"\"\"
-        SELECT 
-            date,
-            close_price,
-            AVG(close_price) OVER (
-                PARTITION BY ticker 
-                ORDER BY date 
-                ROWS BETWEEN 13 PRECEDING AND CURRENT ROW
-            ) as sql_sma_14,
-            AVG(close_price) OVER (
-                PARTITION BY ticker 
-                ORDER BY date 
-                ROWS BETWEEN 49 PRECEDING AND CURRENT ROW
-            ) as sql_sma_50
-        FROM market_data
-        WHERE ticker = :ticker
-        ORDER BY date DESC
-        LIMIT 100
-    \"\"\")
+    query = text(
+        "SELECT "
+        "  date, "
+        "  close_price, "
+        "  AVG(close_price) OVER ("
+        "    PARTITION BY ticker "
+        "    ORDER BY date "
+        "    ROWS BETWEEN 13 PRECEDING AND CURRENT ROW"
+        "  ) AS sql_sma_14, "
+        "  AVG(close_price) OVER ("
+        "    PARTITION BY ticker "
+        "    ORDER BY date "
+        "    ROWS BETWEEN 49 PRECEDING AND CURRENT ROW"
+        "  ) AS sql_sma_50 "
+        "FROM market_data "
+        "WHERE ticker = :ticker "
+        "ORDER BY date DESC "
+        "LIMIT 100"
+    )
     result = db.execute(query, {"ticker": ticker}).fetchall()
-    
+
     if not result:
         raise HTTPException(status_code=404, detail="No data found for the ticker.")
-        
+
     return [
         {
             "date": row.date,
             "close_price": row.close_price,
             "sql_sma_14": round(row.sql_sma_14, 2) if row.sql_sma_14 else None,
-            "sql_sma_50": round(row.sql_sma_50, 2) if row.sql_sma_50 else None
+            "sql_sma_50": round(row.sql_sma_50, 2) if row.sql_sma_50 else None,
         }
         for row in result
     ]

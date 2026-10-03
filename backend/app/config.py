@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     """
 
     # ── Database ──────────────────────────────────────────────────────────
-    # SQLite for local dev; PostgreSQL in Docker / AWS.
+    # SQLite for local dev; PostgreSQL in Docker / Render.
     DATABASE_URL: str = "sqlite:///./market_analyzer.db"
 
     # ── CORS ──────────────────────────────────────────────────────────────
@@ -29,11 +29,25 @@ class Settings(BaseSettings):
         "http://127.0.0.1:3000",
     ]
 
+    # Additional CORS origins from env (comma-separated).
+    # Set EXTRA_CORS_ORIGINS=https://your-app.onrender.com for deployment.
+    EXTRA_CORS_ORIGINS: str = ""
+
     # ── Financial Constants ───────────────────────────────────────────────
     RISK_FREE_RATE: float = 0.065           # Indian T-bill ~6.5 %
     TRADING_DAYS_PER_YEAR: int = 252
     DEFAULT_STARTING_CAPITAL: float = 100_000.0  # INR
     DEFAULT_LOOKBACK_YEARS: int = 5
+
+    @property
+    def all_cors_origins(self) -> List[str]:
+        """Combine static and dynamic CORS origins."""
+        origins = list(self.CORS_ORIGINS)
+        if self.EXTRA_CORS_ORIGINS:
+            origins.extend(
+                o.strip() for o in self.EXTRA_CORS_ORIGINS.split(",") if o.strip()
+            )
+        return origins
 
     class Config:
         env_file = ".env"

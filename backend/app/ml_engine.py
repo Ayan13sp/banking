@@ -8,8 +8,10 @@ instead of printing to stdout.
 Pipeline:
     1. fetch_and_store()  – downloads OHLCV via yfinance, engineers features,
                             bulk-upserts into the MarketData table.
-    2. train_and_predict() – loads data from DB, trains Random Forest,
-                             returns predictions + metrics + importances.
+    2. train_and_predict() – loads data from DB, trains & tunes 3 classifiers
+                             (Random Forest, Logistic Regression, SVM) using
+                             TimeSeriesSplit for cross-validation, selects
+                             the best, returns predictions + metrics + importances.
     3. run_backtest()      – simulates ML strategy vs Buy-and-Hold.
 """
 
@@ -25,7 +27,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.svm import SVC
 from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import RandomizedSearchCV
+from sklearn.model_selection import RandomizedSearchCV, TimeSeriesSplit
 from sklearn.metrics import accuracy_score, precision_score, recall_score
 from sqlalchemy.orm import Session
 
@@ -35,7 +37,7 @@ from app.models import MarketData, ModelPrediction
 warnings.filterwarnings("ignore")
 logger = logging.getLogger(__name__)
 
-# Features used by the Random Forest model.
+# Features used by the classifiers (16 total).
 FEATURE_COLS = [
     "sma_14", "sma_50", "sma_200",
     "ema_14", "ema_20", "ema_50",
@@ -115,7 +117,7 @@ def compute_atr(high: pd.Series, low: pd.Series, close: pd.Series, window: int =
     return tr.rolling(window=window).mean()
 
 def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
-    """Add all 15+ statistical indicators and the binary target variable."""
+    """Add all 16 statistical indicators and the binary target variable."""
     close = df["close_price"]
 
     df["sma_14"] = compute_sma(close, 14)
@@ -235,12 +237,16 @@ def train_and_predict(
     db: Session,
 ) -> Dict[str, Any]:
     """
-    Train a Random Forest on the first 80% of data (time-series split),
-    predict on the last 20%, and return structured results.
+    Train and tune 3 classifiers (Random Forest, Logistic Regression, SVM)
+    on the first 80% of data (time-series split), predict on the last 20%,
+    and return structured results.
+
+    Cross-validation uses sklearn's TimeSeriesSplit to prevent future
+    data leakage during hyperparameter tuning.
 
     Returns a dict with keys:
         train_size, test_size, metrics, feature_importances,
-        predictions, test_df
+        predictions, test_df, best_model_name
     """
     # ── Time-series split (80/20) ─────────────────────────────────────────
     split_idx = int(len(df) * 0.80)
@@ -252,57 +258,123 @@ def train_and_predict(
     X_test = test[FEATURE_COLS]
     y_test = test["target"]
 
-    # ── Iterative Tuning of 3 Models ─────────────────────────────────────────
+    # ── Scale features (needed for LR and SVM) ────────────────────────────
     scaler = StandardScaler()
     X_train_scaled = scaler.fit_transform(X_train)
     X_test_scaled = scaler.transform(X_test)
-    
-    rf_params = {'n_estimators': [100, 200, 300], 'max_depth': [5, 10, 15]}
-    rf = RandomizedSearchCV(RandomForestClassifier(random_state=42), rf_params, n_iter=3, cv=3, n_jobs=-1, random_state=42)
-    rf.fit(X_train, y_train)
-    rf_best = rf.best_estimator_
 
-    lr = LogisticRegression(max_iter=1000, random_state=42)
-    lr.fit(X_train_scaled, y_train)
+    # ── TimeSeriesSplit for cross-validation ──────────────────────────────
+    # This ensures that during hyperparameter tuning, the CV folds always
+    # train on past data and validate on future data — no look-ahead bias.
+    tscv = TimeSeriesSplit(n_splits=5)
 
-    svm = SVC(kernel='rbf', probability=True, random_state=42)
-    svm.fit(X_train_scaled, y_train)
-    
+    # ── 1. Random Forest — tuned with RandomizedSearchCV ─────────────────
+    rf_param_grid = {
+        "n_estimators": [100, 200, 300, 500],
+        "max_depth": [5, 10, 15, 20, None],
+        "min_samples_split": [2, 5, 10],
+        "min_samples_leaf": [1, 2, 4],
+    }
+    rf_search = RandomizedSearchCV(
+        RandomForestClassifier(random_state=42),
+        rf_param_grid,
+        n_iter=10,
+        cv=tscv,
+        scoring="accuracy",
+        n_jobs=-1,
+        random_state=42,
+    )
+    rf_search.fit(X_train, y_train)
+    rf_best = rf_search.best_estimator_
+
+    # ── 2. Logistic Regression — tuned with RandomizedSearchCV ───────────
+    lr_param_grid = {
+        "C": [0.01, 0.1, 1.0, 10.0],
+        "penalty": ["l1", "l2"],
+        "solver": ["liblinear"],
+    }
+    lr_search = RandomizedSearchCV(
+        LogisticRegression(max_iter=1000, random_state=42),
+        lr_param_grid,
+        n_iter=8,
+        cv=tscv,
+        scoring="accuracy",
+        n_jobs=-1,
+        random_state=42,
+    )
+    lr_search.fit(X_train_scaled, y_train)
+    lr_best = lr_search.best_estimator_
+
+    # ── 3. SVM — tuned with RandomizedSearchCV ───────────────────────────
+    svm_param_grid = {
+        "C": [0.1, 1.0, 10.0],
+        "gamma": ["scale", "auto", 0.01, 0.1],
+        "kernel": ["rbf"],
+    }
+    svm_search = RandomizedSearchCV(
+        SVC(probability=True, random_state=42),
+        svm_param_grid,
+        n_iter=8,
+        cv=tscv,
+        scoring="accuracy",
+        n_jobs=-1,
+        random_state=42,
+    )
+    svm_search.fit(X_train_scaled, y_train)
+    svm_best = svm_search.best_estimator_
+
+    # ── Compare all 3 models on the held-out test set ────────────────────
     models = {
-        'Random Forest': (rf_best, X_train, X_test),
-        'Logistic Regression': (lr, X_train_scaled, X_test_scaled),
-        'SVM': (svm, X_train_scaled, X_test_scaled)
+        "Random Forest": (rf_best, X_train, X_test),
+        "Logistic Regression": (lr_best, X_train_scaled, X_test_scaled),
+        "SVM": (svm_best, X_train_scaled, X_test_scaled),
     }
 
-    best_acc = 0
+    all_model_metrics = {}
+    best_acc = -1.0
+    best_model_name = ""
     best_model = None
-    
-    for name, (model, xtr, xte) in models.items():
-        y_pred = model.predict(xte)
-        acc = accuracy_score(y_test, y_pred)
+    best_xtest = None
+
+    for name, (model, _xtr, xte) in models.items():
+        y_pred_temp = model.predict(xte)
+        acc = accuracy_score(y_test, y_pred_temp)
+        prec = precision_score(y_test, y_pred_temp, zero_division=0)
+        rec = recall_score(y_test, y_pred_temp, zero_division=0)
+        all_model_metrics[name] = {
+            "accuracy": round(float(acc), 4),
+            "precision": round(float(prec), 4),
+            "recall": round(float(rec), 4),
+        }
+        logger.info("  %s — Acc=%.4f  Prec=%.4f  Rec=%.4f", name, acc, prec, rec)
         if acc > best_acc:
             best_acc = acc
+            best_model_name = name
             best_model = model
+            best_xtest = xte
 
-    # Always use Random Forest for downstream pipeline consistency (feature importances)
-    if not hasattr(best_model, "feature_importances_"):
-        best_model = rf_best
-        
-    y_pred = best_model.predict(X_test)
-    y_proba = best_model.predict_proba(X_test)
+    logger.info("[Selection] Best model: %s (accuracy=%.4f)", best_model_name, best_acc)
 
-    # ── Classification metrics ────────────────────────────────────────────
+    # For feature importances we need a model with feature_importances_.
+    # If the best model doesn't have it (LR or SVM), use RF's importances
+    # but still score with the actual best model.
+    importance_model = rf_best  # RF always has .feature_importances_
+
+    y_pred = best_model.predict(best_xtest)
+    y_proba = best_model.predict_proba(best_xtest)
+
+    # ── Classification metrics (from the best model) ─────────────────────
     metrics = {
         "accuracy": float(accuracy_score(y_test, y_pred)),
         "precision": float(precision_score(y_test, y_pred, zero_division=0)),
         "recall": float(recall_score(y_test, y_pred, zero_division=0)),
     }
 
-    # ── Feature importances ───────────────────────────────────────────────
+    # ── Feature importances (always from RF for interpretability) ────────
     importances = [
         {"feature": feat, "importance": float(imp)}
         for feat, imp in sorted(
-            zip(FEATURE_COLS, best_model.feature_importances_),
+            zip(FEATURE_COLS, importance_model.feature_importances_),
             key=lambda x: x[1],
             reverse=True,
         )
@@ -334,8 +406,8 @@ def train_and_predict(
 
     db.commit()
     logger.info(
-        "Model tuned (RF, LR, SVM). Final selected: accuracy=%.4f, precision=%.4f, recall=%.4f",
-        metrics["accuracy"], metrics["precision"], metrics["recall"],
+        "Best model: %s — accuracy=%.4f, precision=%.4f, recall=%.4f",
+        best_model_name, metrics["accuracy"], metrics["precision"], metrics["recall"],
     )
 
     return {
@@ -346,6 +418,8 @@ def train_and_predict(
         "predictions": predictions,
         "test_df": test,
         "y_pred": y_pred,
+        "best_model_name": best_model_name,
+        "all_model_metrics": all_model_metrics,
     }
 
 
@@ -515,4 +589,6 @@ def run_full_analysis(
         "metrics": ml_results["metrics"],
         "feature_importances": ml_results["feature_importances"],
         "backtest": backtest_results,
+        "best_model": ml_results["best_model_name"],
+        "all_model_metrics": ml_results["all_model_metrics"],
     }

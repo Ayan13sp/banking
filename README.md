@@ -37,10 +37,10 @@ graph TB
 | Frontend   | Next.js 15, TypeScript, Tailwind CSS v4         |
 | Charting   | TradingView Lightweight Charts                  |
 | Backend    | FastAPI, Python 3.9+, scikit-learn              |
-| Database   | PostgreSQL 16 (Docker) / SQLite (local dev)     |
+| Database   | PostgreSQL 16 (Docker/Render) / SQLite (local)  |
 | ORM        | SQLAlchemy 2.x                                  |
-| ML Model   | Random Forest Classifier (200 trees)            |
-| Deployment | Docker Compose, AWS EC2 + RDS                   |
+| ML Model   | Tuned RF, LR, and SVM using TimeSeriesSplit     |
+| Deployment | Docker Compose, Render                          |
 
 ## Quick Start (Local Development)
 
@@ -87,7 +87,7 @@ This starts PostgreSQL, the FastAPI backend, and the Next.js frontend.
 
 1. **Data Acquisition** — 5Y daily OHLCV via Yahoo Finance
 2. **Feature Engineering** — SMA (14/50), EMA (14/50), RSI-14, Bollinger Bands
-3. **Model Training** — Random Forest with 80/20 time-series split
+3. **Model Training** — 3 models (RF, LR, SVM) tuned with RandomizedSearchCV and TimeSeriesSplit (80/20)
 4. **Backtesting** — ML strategy vs Buy-and-Hold, Sharpe Ratio
 
 ## Project Structure

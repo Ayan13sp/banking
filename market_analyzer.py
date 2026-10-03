@@ -261,28 +261,36 @@ def train_model(
 
     print("\n[Phase 3] Iterative Tuning of 3 Classification Models …")
 
+    # TimeSeriesSplit for cross-validation
+    from sklearn.model_selection import TimeSeriesSplit
+    tscv = TimeSeriesSplit(n_splits=3)
+
     # 1. Random Forest (Tuning)
     rf_params = {
         'n_estimators': [100, 200, 300],
         'max_depth': [5, 10, 15]
     }
-    rf = RandomizedSearchCV(RandomForestClassifier(random_state=42), rf_params, n_iter=3, cv=3, n_jobs=-1, random_state=42)
+    rf = RandomizedSearchCV(RandomForestClassifier(random_state=42), rf_params, n_iter=3, cv=tscv, n_jobs=-1, random_state=42)
     rf.fit(X_train, y_train)
     rf_best = rf.best_estimator_
 
-    # 2. Logistic Regression
-    lr = LogisticRegression(max_iter=1000, random_state=42)
+    # 2. Logistic Regression (Tuning)
+    lr_params = {'C': [0.1, 1, 10], 'penalty': ['l2']}
+    lr = RandomizedSearchCV(LogisticRegression(max_iter=1000, random_state=42), lr_params, n_iter=3, cv=tscv, n_jobs=-1, random_state=42)
     lr.fit(X_train_scaled, y_train)
+    lr_best = lr.best_estimator_
 
-    # 3. SVM
-    svm = SVC(kernel='rbf', probability=True, random_state=42)
+    # 3. SVM (Tuning)
+    svm_params = {'C': [0.1, 1, 10], 'gamma': ['scale', 'auto']}
+    svm = RandomizedSearchCV(SVC(kernel='rbf', probability=True, random_state=42), svm_params, n_iter=3, cv=tscv, n_jobs=-1, random_state=42)
     svm.fit(X_train_scaled, y_train)
+    svm_best = svm.best_estimator_
 
     # Evaluate
     models = {
         'Random Forest': (rf_best, X_train, X_test),
-        'Logistic Regression': (lr, X_train_scaled, X_test_scaled),
-        'SVM': (svm, X_train_scaled, X_test_scaled)
+        'Logistic Regression': (lr_best, X_train_scaled, X_test_scaled),
+        'SVM': (svm_best, X_train_scaled, X_test_scaled)
     }
 
     best_acc = 0
@@ -436,8 +444,10 @@ def plot_results(
 ) -> None:
     """Generate a 2×2 dashboard summarising the analysis."""
     fig, axes = plt.subplots(2, 2, figsize=(16, 10))
+    # Determine a title string (use the first ticker or a generic name)
+    ticker_title = test["Ticker"].iloc[0] if "Ticker" in test.columns else "Portfolio"
     fig.suptitle(
-        f"Algorithmic Market Analyzer – {TICKER}",
+        f"Algorithmic Market Analyzer – {ticker_title}",
         fontsize=16,
         fontweight="bold",
         y=0.98,

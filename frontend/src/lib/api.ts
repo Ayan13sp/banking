@@ -20,11 +20,20 @@ export interface MarketDataPoint {
   volume: number;
   sma_14: number | null;
   sma_50: number | null;
+  sma_200: number | null;
   ema_14: number | null;
+  ema_20: number | null;
   ema_50: number | null;
   rsi_14: number | null;
+  macd_line: number | null;
+  macd_signal: number | null;
+  macd_hist: number | null;
   bb_upper: number | null;
   bb_lower: number | null;
+  atr_14: number | null;
+  daily_return_vol: number | null;
+  volume_ratio: number | null;
+  volume_change: number | null;
   target: number | null;
 }
 
@@ -40,6 +49,12 @@ export interface FeatureImportance {
 }
 
 export interface ClassificationMetrics {
+  accuracy: number;
+  precision: number;
+  recall: number;
+}
+
+export interface ModelMetrics {
   accuracy: number;
   precision: number;
   recall: number;
@@ -73,6 +88,8 @@ export interface AnalysisResponse {
   metrics: ClassificationMetrics;
   feature_importances: FeatureImportance[];
   backtest: BacktestResult;
+  best_model: string;
+  all_model_metrics: Record<string, ModelMetrics>;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
