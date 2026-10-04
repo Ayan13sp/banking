@@ -142,6 +142,8 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
     # Target: 1 (Buy) if tomorrow's close > today's, else 0 (Sell/Hold).
     df["target"] = (close.shift(-1) > close).astype(int)
 
+    # Replace infinite values (caused by divide by zero in volume ratio or RSI) with NaN
+    df.replace([np.inf, -np.inf], np.nan, inplace=True)
     df.dropna(inplace=True)
     return df
 
