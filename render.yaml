@@ -21,7 +21,7 @@ services:
     region: singapore
     plan: free
     buildCommand: "cd frontend && npm install && npm run build"
-    startCommand: "cd frontend && node server.js"
+    startCommand: "cd frontend && npm start"
     envVars:
       - key: NEXT_PUBLIC_API_URL
         value: "https://banking-backend.onrender.com"
