@@ -266,21 +266,19 @@ def train_and_predict(
     X_test_scaled = scaler.transform(X_test)
 
     # ── TimeSeriesSplit for cross-validation ──────────────────────────────
-    # This ensures that during hyperparameter tuning, the CV folds always
-    # train on past data and validate on future data — no look-ahead bias.
-    tscv = TimeSeriesSplit(n_splits=5)
+    # Reduced to 3 splits to ensure fast API responses on free tier hosting
+    tscv = TimeSeriesSplit(n_splits=3)
 
     # ── 1. Random Forest — tuned with RandomizedSearchCV ─────────────────
     rf_param_grid = {
-        "n_estimators": [100, 200, 300, 500],
-        "max_depth": [5, 10, 15, 20, None],
-        "min_samples_split": [2, 5, 10],
-        "min_samples_leaf": [1, 2, 4],
+        "n_estimators": [50, 100],
+        "max_depth": [5, 10, None],
+        "min_samples_split": [2, 5],
     }
     rf_search = RandomizedSearchCV(
         RandomForestClassifier(random_state=42),
         rf_param_grid,
-        n_iter=10,
+        n_iter=3,
         cv=tscv,
         scoring="accuracy",
         n_jobs=-1,
@@ -291,14 +289,13 @@ def train_and_predict(
 
     # ── 2. Logistic Regression — tuned with RandomizedSearchCV ───────────
     lr_param_grid = {
-        "C": [0.01, 0.1, 1.0, 10.0],
-        "penalty": ["l1", "l2"],
-        "solver": ["liblinear"],
+        "C": [0.1, 1.0, 10.0],
+        "penalty": ["l2"],
     }
     lr_search = RandomizedSearchCV(
-        LogisticRegression(max_iter=1000, random_state=42),
+        LogisticRegression(max_iter=500, random_state=42),
         lr_param_grid,
-        n_iter=8,
+        n_iter=2,
         cv=tscv,
         scoring="accuracy",
         n_jobs=-1,
@@ -309,14 +306,13 @@ def train_and_predict(
 
     # ── 3. SVM — tuned with RandomizedSearchCV ───────────────────────────
     svm_param_grid = {
-        "C": [0.1, 1.0, 10.0],
-        "gamma": ["scale", "auto", 0.01, 0.1],
-        "kernel": ["rbf"],
+        "C": [0.1, 1.0],
+        "gamma": ["scale", "auto"],
     }
     svm_search = RandomizedSearchCV(
-        SVC(probability=True, random_state=42),
+        SVC(probability=True, kernel="rbf", random_state=42),
         svm_param_grid,
-        n_iter=8,
+        n_iter=2,
         cv=tscv,
         scoring="accuracy",
         n_jobs=-1,
